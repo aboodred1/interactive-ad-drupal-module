@@ -1,0 +1,6 @@
+name = Interactive
+description = Interactive Ad.
+core = 7.x
+
+dependencies[] = brightcove
+dependencies[] = cck

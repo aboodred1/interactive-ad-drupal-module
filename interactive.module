@@ -1,0 +1,180 @@
+<?php
+
+
+function interactive_form_alter(&$form, &$form_state, $form_id) {
+  //drupal_set_message($form_id, 'status');
+}
+
+function interactive_form_page_interactive_ad_alt_node_form_alter(&$form, &$form_state, $form_id) {
+
+  drupal_add_js(drupal_get_path('module', 'interactive') . '/interactive.js');  
+    
+  if(isset($form['#node']->nid)) {
+    
+    $form['changed']['#default_value'] = time() + 600;
+      
+    $form['interactive_ad_download_js_container'] = array(
+      '#type' => 'container',
+      '#weight' => $form['field_interactive_ad_customize']['#weight'] + 2,
+    );
+    
+    $form['interactive_ad_download_js_container']['download_js_button'] = array(
+      '#type' => 'submit',
+      '#value' => 'Generate JS file',  
+        '#ajax' => array(
+        'callback' => 'interactive_ad_download_js_callback',
+        'wrapper' => 'download-js-file',
+        'effect' => 'fade',
+      ),
+      '#limit_validation_errors' => $form['actions']['save']['#limit_validation_errors'],
+      '#submit' => array('interactive_ad_download_js_submit', 'node_form_submit'),
+      '#weight' => 1,
+    );
+    
+    $form['interactive_ad_download_js_container']['download_js_fieldset'] = array(
+      '#type' => 'fieldset',    
+      '#title' => t("Generated JS file"),
+      '#description' => t('This is where you get generated JS file.'),
+      '#weight' => 2,
+    );
+    
+    $form['interactive_ad_download_js_container']['download_js_fieldset']['download_js_link'] = array(
+      '#type' => 'markup',    
+      '#prefix' => '<div id="download-js-file">',
+      '#suffix' => '</div>',   
+    );
+  }  
+}
+
+function interactive_ad_download_js_submit($form, &$form_state) {
+  // do nothing so far.
+}
+
+function interactive_ad_download_js_callback(&$form, &$form_state) {
+  // generate javascript URL
+  $output = '';
+    
+  drupal_set_message('JS file has been generated successfully.', 'status');
+
+  //$debug = '<pre>' . print_r($form_state['values']['field_interactive_ad_customize']['und'], true) . '</pre>';  
+  
+  $js_variables = '';
+  
+  $videos = $form_state['values']['field_interactive_ad_customize']['und'];
+  
+  foreach($videos as $delta => $video) {
+    if(is_array($video)) {
+      $js_variables .= t('var video@index = "!video";', array('@index' => $delta + 1, '!video' => $video['field_interactive_ad_source']['und'][0]['value'])) . "\n";    
+    }
+  }
+  
+  //$dirpath = variable_get('file_public_path', conf_path() . '/files');
+
+  $js_directory = 'public://interactive_ads';
+    
+  if (!is_dir($js_directory) && !drupal_mkdir($js_directory, NULL, TRUE)) {
+    drupal_set_message(t('The directory %directory does not exist and could not be created.', array('%directory' => $js_directory)));
+  }
+  
+  if (is_dir($js_directory) && !is_writable($js_directory) && !drupal_chmod($js_directory)) {
+    drupal_set_message(t('The directory %directory exists but is not writable and could not be made writable.', array('%directory' => $js_directory)));
+  } elseif (is_dir($js_directory)) {
+    
+    interactive_file_create_htaccess($js_directory);
+   
+    // uniqid()
+    
+    $js_uri = file_create_filename(md5($js_variables) . '.js', $js_directory);
+    
+    file_put_contents($js_uri, $js_variables);
+    
+    $js_link = file_create_url($js_uri);
+    
+    $output = l($js_link, $js_link, array(/*'attributes' => array('target' => '_blank')*/));
+    
+    $form['interactive_ad_download_js_container']['download_js_fieldset']['download_js_link']['#markup'] = $output;
+    
+    return $form['interactive_ad_download_js_container']['download_js_fieldset']['download_js_link'];
+  }
+  
+  return;
+}
+
+/**
+ * Implements hook_field_extra_fields().
+ */
+function interactive_field_extra_fields() {
+  $extra = array();
+  
+  $extra['node']['page_interactive_ad_alt']['form'] = array(
+    'additional_settings' => array(
+      'label' => t('Additional Information'),
+      'description' => t('Node module element'),
+      'weight' => 100,
+    ),
+    'interactive_ad_download_js_container' => array(
+      'label' => t('Download JS button'),
+      'description' => t('Interactive Ad module element'),
+      'weight' => 99,
+    ),
+  );
+  
+  return $extra;
+}
+
+function interactive_brightcove_videos() {
+  //if(arg(0) == 'node' && is_numeric(arg(1)) && arg(2) == 'edit'){
+  if(arg(0) == 'node' && is_numeric(arg(1))){
+    $_SESSION['interactive_nid'] = arg(1);
+  }  
+
+  $options = array(
+    '123' => 'Video A',
+    '456' => 'Video B',
+    '789' => 'Video C',
+  );
+    
+  if(isset($_SESSION['interactive_nid'])){
+    $node = node_load($_SESSION['interactive_nid']);
+    if(isset($node->field_interactive_ad_brightcove['und'])) {
+      $videos = $node->field_interactive_ad_brightcove['und'];
+      foreach($videos as $delta => $video) {
+        $brightcove = brightcove_video_load($video['video_id']);
+        $options[$brightcove->id] = $brightcove->name;
+      }
+    }
+    //unset($_SESSION['interactive_nid']);
+  }
+  
+  return $options;
+}
+
+function interactive_file_create_htaccess($directory) {
+  if (file_uri_scheme($directory)) {
+    $directory = file_stream_wrapper_uri_normalize($directory);
+  }
+  else {
+    $directory = rtrim($directory, '/\\');
+  }
+  $htaccess_path = $directory . '/.htaccess';
+
+  if (file_exists($htaccess_path)) {
+    // Short circuit if the .htaccess file already exists.
+    return;
+  }
+
+  // Public .htaccess file.
+  $htaccess_lines = "SetHandler Drupal_Security_Do_Not_Remove_See_SA_2006_006\nOptions None\nOptions +FollowSymLinks\nAddType application/octet-stream .js";
+
+  // Write the .htaccess file.
+  if (file_put_contents($htaccess_path, $htaccess_lines)) {
+    drupal_chmod($htaccess_path, 0444);
+  }
+  else {
+    $variables = array(
+      '%directory' => $directory,
+      '!htaccess' => '<br />' . nl2br(check_plain($htaccess_lines)),
+    );
+    watchdog('security', "Security warning: Couldn't write .htaccess file. Please create a .htaccess file in your %directory directory which contains the following lines: <code>!htaccess</code>", $variables, WATCHDOG_ERROR);
+  }
+}

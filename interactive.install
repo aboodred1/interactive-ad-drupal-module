@@ -1,0 +1,13 @@
+<?php
+
+function interactive_install() {
+  // Set interactive to a higher weight, it should load after Multistep module loads.
+  db_update('system')
+    ->fields(array(
+      'weight' => 50,
+    ))
+    ->condition('name', 'interactive')
+    ->execute();
+}
+
+
